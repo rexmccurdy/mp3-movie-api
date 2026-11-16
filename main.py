@@ -33,7 +33,7 @@ def health_check():
     return HealthResponse(status="ok", version="1.0.0")
 
 
-@app.post("/upload", response_model=DatasetInfo)
+@app.post("/upload", response_model=MovieUploadInfo)
 async def upload_movies(file: UploadFile = File(...)):
     if Path(file.filename or "").suffix.lower() != ".csv":
         raise HTTPException(status_code=400, detail="Only CSV files are supported")
@@ -54,18 +54,26 @@ async def upload_movies(file: UploadFile = File(...)):
 
     logger.info(f"Saved {len(df)} rows from {file.filename}")
 
-    return file.filename, len(df), len(df.columns), df.columns
+    return MovieUploadInfo(
+        filename=file.filename,
+        rows=len(df),
+        columns=len(df.columns),
+        column_names=df.columns.tolist()
+    )
 
     
 
 @app.get("/movies")
 def get_dataset(limit: int = Query(default=100, ge=1)):
     
-    df = storage.get()[:limit]
+    df = storage.get()
+    df.insert(0, "id", range(1, len(df) + 1))
     
     records = json.loads(df.head(limit).to_json(orient="records"))
     logger.info(f"Got {len(df)} rows from storage")
     return {"data": records, "total_rows": len(df)}
+
+
 
 @app.get("/movies/search", response_model=list[dict])
 def query_movies(
@@ -84,7 +92,7 @@ def query_movies(
 
 @app.post(
     "/datasets/process",
-    response_model=ProcessingReport
+    response_model=MovieProcessingReport
 )
 def process_dataset(dataset_id: int, config: ProcessConfig):
     df = storage.get()
@@ -116,7 +124,7 @@ def process_dataset(dataset_id: int, config: ProcessConfig):
     logger.info(f"Dataset processed, "
                 f"{len(post_validation) - len(df)} rows removed, "
                 f"Cleaning report: {cleaning_report}")
-    return ProcessingReport(
+    return MovieProcessingReport(
         validation_rows_removed=len(pre_validation) - len(post_validation),
         cleaning_report=cleaning_report
     )

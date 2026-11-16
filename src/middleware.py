@@ -36,10 +36,6 @@ async def log_requests(request: Request, call_next):
         logger.warning(message)
     else:
         logger.info(message)
-    # TODO 2: Build a message containing request_id, request.method,
-    # request.url.path, response.status_code, and duration_ms.
-    # TODO 3: Log that message at ERROR for 5xx, WARNING for 4xx,
-    # and INFO for other responses.
 
     response.headers["X-Request-ID"] = request_id
     return response

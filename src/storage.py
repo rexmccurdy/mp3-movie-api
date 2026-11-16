@@ -39,7 +39,7 @@ class MovieStorage:
         """Return the four movie columns as a DataFrame, ordered by id."""
         connection = get_connection(self.db_path)
         try:
-            sql_statement = "SELECT title, release_year, rating, genre FROM movies"
+            sql_statement = "SELECT title, release_year, rating, genre FROM movies ORDER BY id"
             rows = connection.execute(sql_statement).fetchall()
             return pd.DataFrame(rows, columns=MOVIE_COLUMNS)
         finally:
