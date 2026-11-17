@@ -14,6 +14,7 @@ from src import (
     MovieDataResponse,
     MovieProcessingReport,
     ProcessingReport,
+    MovieCache,
     setup_logging, 
     log_requests
 )
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Data Processing API", version="1.0.0")
 app.middleware("http")(log_requests)
 storage = MovieStorage()
+cache = MovieCache()
 
 @app.get("/health", response_model=HealthResponse)
 def health_check():
@@ -51,6 +53,7 @@ async def upload_movies(file: UploadFile = File(...)):
     df = df[MOVIE_COLUMNS]
 
     storage.save(df)
+    cache.invalidate()
 
     logger.info(f"Saved {len(df)} rows from {file.filename}")
 
@@ -65,13 +68,19 @@ async def upload_movies(file: UploadFile = File(...)):
 
 @app.get("/movies")
 def get_dataset(limit: int = Query(default=100, ge=1)):
-    
+
+    cached = cache.get(limit)
+    if cached is not None:
+        logger.info(f"Cache HIT, limit: {limit}")
+        return cached
     df = storage.get()
     df.insert(0, "id", range(1, len(df) + 1))
     
     records = json.loads(df.head(limit).to_json(orient="records"))
+    response = {"data": records, "total_rows": len(df)}
+    cache.set(limit, response)
     logger.info(f"Got {len(df)} rows from storage")
-    return {"data": records, "total_rows": len(df)}
+    return response
 
 
 
@@ -91,12 +100,12 @@ def query_movies(
 
 
 @app.post(
-    "/datasets/process",
+    "/movies/process",
     response_model=MovieProcessingReport
 )
-def process_dataset(dataset_id: int, config: ProcessConfig):
+def process_movies(config: ProcessConfig):
     df = storage.get()
-    if df is None:
+    if df.empty:
         raise HTTPException(status_code=404, detail="Dataset not found.")
 
     config_dict = config.model_dump()
@@ -116,11 +125,10 @@ def process_dataset(dataset_id: int, config: ProcessConfig):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     cleaning_report = create_cleaning_report(post_validation, df)
-    logger.info(f"Dataset processed, "
-                f"{len(post_validation) - len(df)} rows removed, "
-                f"Cleaning report: {cleaning_report}")
 
     storage.save(df)
+    cache.invalidate()
+
     logger.info(f"Dataset processed, "
                 f"{len(post_validation) - len(df)} rows removed, "
                 f"Cleaning report: {cleaning_report}")
